@@ -167,15 +167,19 @@ void *test_thread(void *data) {
 }
 
 #define N_BUFFERS 4
-#define BUFFER_SIZE 144
-#define SAMPLE_RATE 44100
+
+int global_bufsize;
+int global_sample_rate;
+#define MAX_BUFFER_SIZE 4096
 
 struct renderctx {
 	sem_t wake_sem;
 	sem_t ready_sem;
-	int16_t buffer[BUFFER_SIZE * N_BUFFERS];
+	sem_t done_sem;
+	int16_t buffer[MAX_BUFFER_SIZE * N_BUFFERS];
 	int render_ix;
 	int play_ix;
+	double mark_jitter;
 };
 
 struct renderctx global_renderctx;
@@ -183,13 +187,10 @@ struct renderctx global_renderctx;
 void init_renderctx(struct renderctx *ctx) {
 	sem_init(&ctx->wake_sem, 0, 2);
 	sem_init(&ctx->ready_sem, 0, 0);
+	sem_init(&ctx->done_sem, 0, 0);
 	ctx->render_ix = 0;
 	ctx->play_ix = 0;
 }
-
-int16_t buffer[BUFFER_SIZE * N_BUFFERS];
-int cur_buffer = 0;
-int count = 0;
 
 // engine interfaces
 static SLObjectItf engineObject = NULL;
@@ -206,6 +207,7 @@ static SLBufferQueueItf buffer_queue_itf;
 
 double last_ts = 0;
 
+int count;
 double delays[1000];
 
 int spin(int n) {
@@ -270,29 +272,33 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 	  		}
 		}
 #endif
-		double mark = start * SAMPLE_RATE / BUFFER_SIZE - count;
+		double mark = start * global_sample_rate / global_bufsize - count;
 		if (count == 3 || mark < minmark) minmark = mark;
 		if (count == 3 || mark > maxmark) maxmark = mark;
 	  	LOGI("callback %4i: %.6f (+%.6f) %.6f", count, start, start - last_ts, ts_to_double(&tp) - start);
 	  	if (count == 999) {
 	  		double jitter = maxmark - minmark;
-	  		double jitterms = jitter * BUFFER_SIZE / SAMPLE_RATE * 1000;
+	  		double jitterms = jitter * global_bufsize / global_sample_rate * 1000;
+	  		ctx->mark_jitter = jitterms;
 	  		LOGI("mark jitter = %.6f (%.3fms)", jitter, jitterms);
 	  	}
 	  	last_ts = start;
 	}
 #endif
 	count++;
+	if (count == 1000) {
+		sem_post(&ctx->done_sem);
+	}
 	if (count >= 1000) return;
 	int ok = sem_trywait(&ctx->ready_sem);
 	if (ok != 0) {
 		LOGI("underrun %d!", count);
 	}
-	int16_t *buf_ptr = buffer + BUFFER_SIZE * ctx->play_ix;
-	memset(buf_ptr, 0, BUFFER_SIZE * sizeof(int16_t));
+	int16_t *buf_ptr = ctx->buffer + global_bufsize * ctx->play_ix;
+	memset(buf_ptr, 0, global_bufsize * sizeof(int16_t));
 	buf_ptr[0] = 1000;
 	SLresult result = (*queueItf)->Enqueue(bq_player_buffer_queue,
-		buf_ptr, BUFFER_SIZE * 2);
+		buf_ptr, global_bufsize * 2);
 	assert(SL_RESULT_SUCCESS == result);
 	ctx->play_ix = (ctx->play_ix + 1) % N_BUFFERS;
 	if (ok == 0) sem_post(&ctx->wake_sem);
@@ -318,14 +324,15 @@ void CreateEngine() {
     LOGI("engine started");
 }
 
-void
-Java_com_levien_threadtest_ThreadTest_start(JNIEnv *env,
-    jobject thiz) {
+void Java_com_levien_threadtest_ThreadTest_initAudio(JNIEnv *env, jobject thiz, jint sample_rate, jint buf_size)
+{
+	global_sample_rate = sample_rate;
+	global_bufsize = buf_size;
   CreateEngine();
   SLDataLocator_AndroidSimpleBufferQueue loc_bufq =
     {SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, N_BUFFERS};
   SLDataFormat_PCM format_pcm = {
-    SL_DATAFORMAT_PCM, 1, SAMPLE_RATE * 1000,
+    SL_DATAFORMAT_PCM, 1, sample_rate * 1000,
     SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
     SL_SPEAKER_FRONT_CENTER, SL_BYTEORDER_LITTLEENDIAN
       // TODO: compute real endianness
@@ -349,20 +356,32 @@ Java_com_levien_threadtest_ThreadTest_start(JNIEnv *env,
       &bq_player_buffer_queue);
   assert(SL_RESULT_SUCCESS == result);
 
-  init_renderctx(&global_renderctx);
+}
+
+jstring
+Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
+    jobject thiz) {
+
+	init_renderctx(&global_renderctx);
 	pthread_t thread;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 	pthread_create(&thread, &attr, render_thread, &global_renderctx);
+	SLresult result;
 
-  result = (*bq_player_buffer_queue)->RegisterCallback(bq_player_buffer_queue,
+	result = (*bq_player_buffer_queue)->RegisterCallback(bq_player_buffer_queue,
         &BqPlayerCallback, &global_renderctx);
-  assert(SL_RESULT_SUCCESS == result);
+	assert(SL_RESULT_SUCCESS == result);
 
-  BqPlayerCallback(bq_player_buffer_queue, &global_renderctx);
-  result = (*bq_player_play)->SetPlayState(bq_player_play,
-      SL_PLAYSTATE_PLAYING);
-  assert(SL_RESULT_SUCCESS == result);
+	BqPlayerCallback(bq_player_buffer_queue, &global_renderctx);
+	result = (*bq_player_play)->SetPlayState(bq_player_play,
+		SL_PLAYSTATE_PLAYING);
+	assert(SL_RESULT_SUCCESS == result);
+    sem_wait(&global_renderctx.done_sem);
+	char buf[256];
+	sprintf(buf, "OpenSL callback jitter = %.3fms", global_renderctx.mark_jitter);
+    return (*env)->NewStringUTF(env, buf);
+
 }
 
 /* Adapted from hello jni example */
