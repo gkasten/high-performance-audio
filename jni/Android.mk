@@ -18,6 +18,6 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE    := hello-jni
 LOCAL_SRC_FILES := hello-jni.c
-LOCAL_LDLIBS    := -llog
+LOCAL_LDLIBS    := -llog -lOpenSLES
 
 include $(BUILD_SHARED_LIBRARY)

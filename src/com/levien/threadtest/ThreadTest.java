@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 The Android Open Source Project
+ * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,17 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.example.hellojni;
+package com.levien.threadtest;
 
 import android.app.Activity;
+import android.content.Context;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.os.Bundle;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.TextView;
 
-
-public class HelloJni extends Activity
+public class ThreadTest extends Activity
 {
     /** Called when the activity is first created. */
     @Override
@@ -31,39 +34,32 @@ public class HelloJni extends Activity
     {
         super.onCreate(savedInstanceState);
 
-        /* Create a TextView and set its content.
-         * the text is retrieved by calling a native
-         * function.
-         */
         setContentView(R.layout.main);
         final TextView tv = (TextView) findViewById(R.id.textView1);
-        tv.setText( stringFromJNI() );
+        //start();
+        //tv.setText( start() );
+        int bufSize = AudioTrack.getMinBufferSize(44100, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_8BIT);
+        AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
+        String sr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+        String bs = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
         Button button = (Button) findViewById(R.id.button1);
+        tv.setText("bufSize=" + bufSize + ", sr=" + sr + ", bs=" + bs);
         button.setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
-        		tv.setText(tv.getText() + "\n" +
-        				stringFromJNI());
+        		start();
+        		//tv.setText(tv.getText() + "\n" + test());
         	}
         });
     }
 
+    public native void start();
+    
     /* A native method that is implemented by the
      * 'hello-jni' native library, which is packaged
      * with this application.
      */
-    public native String  stringFromJNI();
-
-    /* This is another native method declaration that is *not*
-     * implemented by 'hello-jni'. This is simply to show that
-     * you can declare as many native methods in your Java code
-     * as you want, their implementation is searched in the
-     * currently loaded native libraries only the first time
-     * you call them.
-     *
-     * Trying to call this function will result in a
-     * java.lang.UnsatisfiedLinkError exception !
-     */
-    public native String  unimplementedStringFromJNI();
+    public native String  test();
+    public native String  cpuBound();
 
     /* this is used to load the 'hello-jni' library on application
      * startup. The library has already been unpacked into

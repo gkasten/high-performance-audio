@@ -14,6 +14,8 @@
  * limitations under the License.
  *
  */
+
+#include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
@@ -24,6 +26,10 @@
 #include <math.h>
 #include <android/log.h>
 #include <semaphore.h>
+#include <SLES/OpenSLES.h>
+#include <SLES/OpenSLES_Android.h>
+
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "threads", __VA_ARGS__)
 
 #define SEMAPHORE
 
@@ -59,23 +65,16 @@ struct ctx {
 	double rd_time[N];
 };
 
-void *third_wheel_thread(void *data) {
-	struct timespec tp;
-	tp.tv_sec = 10;
-	tp.tv_nsec = 0;
-	clock_nanosleep(CLOCK_MONOTONIC, 0, &tp, NULL);
-	return NULL;
-}
-
 void *reader_thread(void *data) {
-	int s = setpriority(PRIO_PROCESS, 0, -16);
+	int s = setpriority(PRIO_PROCESS, gettid(), -16);
 	struct ctx *ctx = (struct ctx *)data;
 
+#if 0
 	pthread_t thread;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 	pthread_create(&thread, &attr, third_wheel_thread, NULL);
-
+#endif
 
 	int i;
 	for (i = 0; i < N; i++) {
@@ -167,14 +166,208 @@ void *test_thread(void *data) {
 	return NULL;
 }
 
-/* This is a trivial JNI example where we use a native method
- * to return a new VM String. See the corresponding Java source
- * file located at:
- *
- *   apps/samples/hello-jni/project/src/com/example/hellojni/HelloJni.java
- */
+#define N_BUFFERS 4
+#define BUFFER_SIZE 144
+#define SAMPLE_RATE 44100
+
+struct renderctx {
+	sem_t wake_sem;
+	sem_t ready_sem;
+	int16_t buffer[BUFFER_SIZE * N_BUFFERS];
+	int render_ix;
+	int play_ix;
+};
+
+struct renderctx global_renderctx;
+
+void init_renderctx(struct renderctx *ctx) {
+	sem_init(&ctx->wake_sem, 0, 2);
+	sem_init(&ctx->ready_sem, 0, 0);
+	ctx->render_ix = 0;
+	ctx->play_ix = 0;
+}
+
+int16_t buffer[BUFFER_SIZE * N_BUFFERS];
+int cur_buffer = 0;
+int count = 0;
+
+// engine interfaces
+static SLObjectItf engineObject = NULL;
+static SLEngineItf engineEngine;
+
+// output mix interfaces
+static SLObjectItf outputMixObject = NULL;
+
+// buffer queue player interfaces
+static SLObjectItf bqPlayerObject = NULL;
+static SLPlayItf bq_player_play;
+static SLAndroidSimpleBufferQueueItf bq_player_buffer_queue;
+static SLBufferQueueItf buffer_queue_itf;
+
+double last_ts = 0;
+
+double delays[1000];
+
+int spin(int n) {
+	int k = 1;
+	int i;
+	for (i = 0; i < n; i++) {
+		k *= 32;
+	}
+	return k;
+}
+
+int spin100us(int n) {
+	int i;
+	for (i = 0; i < n; i++) {
+		spin(12987);
+	}
+}
+
+int spinms(int n) {
+	return spin100us(n * 10);
+}
+
+void *render_thread(void *data) {
+	int s = setpriority(PRIO_PROCESS, gettid(), -16);
+	struct renderctx *ctx = (struct renderctx *)data;
+
+	while (1) {
+		sem_wait(&ctx->wake_sem);
+		char buf[1];
+		struct timespec tp;
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		//ctx->rd_time[i] = ts_to_double(&tp);
+  		int delay = 0;
+  		spinms(delay);
+		sem_post(&ctx->ready_sem);
+	}
+	return NULL;
+}
+
+double minmark, maxmark;
+
+void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
+  void *data) {
+	struct renderctx *ctx = (struct renderctx *)data;
+#if 1
+  	if (count < 1000) {
+  		int delay = 9 * ((count / 50) & 1);
+  		delay = 0;
+  		struct timespec tp;
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		double start = ts_to_double(&tp);
+
+		spin100us(delay);
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+
+		delays[count] = start - last_ts;
+#if 0
+		if (count == 999) {
+			int i;
+			for (i = 0; i < 100; i++) {
+	  			LOGI("delay[%d] = %.6f", i, delays[i]);
+	  		}
+		}
+#endif
+		double mark = start * SAMPLE_RATE / BUFFER_SIZE - count;
+		if (count == 3 || mark < minmark) minmark = mark;
+		if (count == 3 || mark > maxmark) maxmark = mark;
+	  	LOGI("callback %4i: %.6f (+%.6f) %.6f", count, start, start - last_ts, ts_to_double(&tp) - start);
+	  	if (count == 999) {
+	  		double jitter = maxmark - minmark;
+	  		double jitterms = jitter * BUFFER_SIZE / SAMPLE_RATE * 1000;
+	  		LOGI("mark jitter = %.6f (%.3fms)", jitter, jitterms);
+	  	}
+	  	last_ts = start;
+	}
+#endif
+	count++;
+	if (count >= 1000) return;
+	int ok = sem_trywait(&ctx->ready_sem);
+	if (ok != 0) {
+		LOGI("underrun %d!", count);
+	}
+	int16_t *buf_ptr = buffer + BUFFER_SIZE * ctx->play_ix;
+	memset(buf_ptr, 0, BUFFER_SIZE * sizeof(int16_t));
+	buf_ptr[0] = 1000;
+	SLresult result = (*queueItf)->Enqueue(bq_player_buffer_queue,
+		buf_ptr, BUFFER_SIZE * 2);
+	assert(SL_RESULT_SUCCESS == result);
+	ctx->play_ix = (ctx->play_ix + 1) % N_BUFFERS;
+	if (ok == 0) sem_post(&ctx->wake_sem);
+}
+
+void CreateEngine() {
+    SLresult result;
+    result = slCreateEngine(&engineObject, 0, NULL, 0, NULL, NULL);
+    assert(SL_RESULT_SUCCESS == result);
+
+    result = (*engineObject)->Realize(engineObject, SL_BOOLEAN_FALSE);
+    assert(SL_RESULT_SUCCESS == result);
+
+    result = (*engineObject)->GetInterface(engineObject, SL_IID_ENGINE,
+      &engineEngine);
+    assert(SL_RESULT_SUCCESS == result);
+
+    result = (*engineEngine)->CreateOutputMix(engineEngine, &outputMixObject,
+      0, NULL, NULL);
+    assert(SL_RESULT_SUCCESS == result);
+    result = (*outputMixObject)->Realize(outputMixObject, SL_BOOLEAN_FALSE);
+    assert(SL_RESULT_SUCCESS == result);
+    LOGI("engine started");
+}
+
+void
+Java_com_levien_threadtest_ThreadTest_start(JNIEnv *env,
+    jobject thiz) {
+  CreateEngine();
+  SLDataLocator_AndroidSimpleBufferQueue loc_bufq =
+    {SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, N_BUFFERS};
+  SLDataFormat_PCM format_pcm = {
+    SL_DATAFORMAT_PCM, 1, SAMPLE_RATE * 1000,
+    SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
+    SL_SPEAKER_FRONT_CENTER, SL_BYTEORDER_LITTLEENDIAN
+      // TODO: compute real endianness
+  };
+  SLDataSource audio_src = {&loc_bufq, &format_pcm};
+  SLDataLocator_OutputMix loc_outmix = {SL_DATALOCATOR_OUTPUTMIX,
+    outputMixObject};
+  SLDataSink audio_sink = {&loc_outmix, NULL};
+  const SLInterfaceID ids[2] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
+  const SLboolean req[2] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
+  SLresult result;
+  result = (*engineEngine)->CreateAudioPlayer(engineEngine, &bqPlayerObject,
+      &audio_src, &audio_sink, 2, ids, req);
+  assert(SL_RESULT_SUCCESS == result);
+  result = (*bqPlayerObject)->Realize(bqPlayerObject, SL_BOOLEAN_FALSE);
+  assert(SL_RESULT_SUCCESS == result);
+  result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_PLAY,
+      &bq_player_play);
+  assert(SL_RESULT_SUCCESS == result);
+  result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_BUFFERQUEUE,
+      &bq_player_buffer_queue);
+  assert(SL_RESULT_SUCCESS == result);
+
+  init_renderctx(&global_renderctx);
+	pthread_t thread;
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_create(&thread, &attr, render_thread, &global_renderctx);
+
+  result = (*bq_player_buffer_queue)->RegisterCallback(bq_player_buffer_queue,
+        &BqPlayerCallback, &global_renderctx);
+  assert(SL_RESULT_SUCCESS == result);
+
+  BqPlayerCallback(bq_player_buffer_queue, &global_renderctx);
+  result = (*bq_player_play)->SetPlayState(bq_player_play,
+      SL_PLAYSTATE_PLAYING);
+  assert(SL_RESULT_SUCCESS == result);
+}
+
+/* Adapted from hello jni example */
 jstring
-Java_com_example_hellojni_HelloJni_stringFromJNI( JNIEnv* env,
+Java_com_levien_threadtest_ThreadTest_test( JNIEnv* env,
                                                   jobject thiz )
 {
 	char buf[256];
@@ -208,6 +401,28 @@ Java_com_example_hellojni_HelloJni_stringFromJNI( JNIEnv* env,
 		pthread_join(thread, &res);
 	}
     pthread_attr_destroy(&attr);
+    return (*env)->NewStringUTF(env, buf);
+}
+
+jstring
+Java_com_levien_threadtest_ThreadTest_cpuBound(JNIEnv *env, jobject thiz)
+{
+	char buf[256];
+	int i;
+	int n = 129870;
+	int n2 = 1000;
+	for (i = 0; i < 1000; i++) {
+		spin(n);
+	}
+	struct timespec tp;
+	clock_gettime(CLOCK_MONOTONIC, &tp);
+	double start = ts_to_double(&tp);
+	for (i = 0; i < n2; i++) {
+		spin(n);
+	}
+	clock_gettime(CLOCK_MONOTONIC, &tp);
+	double delta = ts_to_double(&tp) - start;
+	sprintf(buf, "%d iters in %.6fs", n2, delta);
     return (*env)->NewStringUTF(env, buf);
 }
 
