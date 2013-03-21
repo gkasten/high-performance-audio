@@ -15,6 +15,7 @@
  */
 package com.levien.threadtest;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.media.AudioManager;
@@ -27,6 +28,15 @@ import android.widget.TextView;
 
 public class ThreadTest extends Activity
 {
+	public class AudioParams {
+		AudioParams(int sr, int bs) {
+			sampleRate = sr;
+			bufferSize = bs;
+		}
+		int sampleRate;
+		int bufferSize;
+	}
+
 	public class TestThread implements Runnable {
 
 		@Override
@@ -54,21 +64,21 @@ public class ThreadTest extends Activity
 	}
 	
     /** Called when the activity is first created. */
-    @Override
+	@Override
     public void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.main);
-        log(Build.MANUFACTURER + " " + Build.MODEL + " " + Build.ID);
+        log(Build.MANUFACTURER + " " + Build.MODEL + " " + Build.ID + " (api " + Build.VERSION.SDK_INT + ")");
         
         //start();
-        AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
-        String sr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
-        String bs = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
+        AudioParams params = new AudioParams(44100, 768);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+        	getJbMr1Params(params);
+        }
+        initAudio(params.sampleRate, params.bufferSize);
         Button button = (Button) findViewById(R.id.button1);
-        log("Sample rate = " + sr + ", buf size = " + bs);
-        initAudio(Integer.parseInt(sr), Integer.parseInt(bs));
         button.setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
         		log(test());
@@ -77,6 +87,17 @@ public class ThreadTest extends Activity
         });
         Thread t = new Thread(new TestThread());
         t.start();
+    }
+
+	@TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    void getJbMr1Params(AudioParams params) {
+        AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
+    	String sr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+    	String bs = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
+    	log("Sample rate = " + sr + ", buf size = " + bs);
+    	params.sampleRate = Integer.parseInt(sr);
+    	params.bufferSize = Integer.parseInt(bs);
+
     }
 
     public native void initAudio(int sample_rate, int buf_size);

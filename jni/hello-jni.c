@@ -207,6 +207,7 @@ static SLBufferQueueItf buffer_queue_itf;
 
 double last_ts = 0;
 
+int state = 0;
 int count;
 double delays[1000];
 
@@ -273,9 +274,10 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 		}
 #endif
 		double mark = start * global_sample_rate / global_bufsize - count;
-		if (count == 3 || mark < minmark) minmark = mark;
-		if (count == 3 || mark > maxmark) maxmark = mark;
-	  	LOGI("callback %4i: %.6f (+%.6f) %.6f", count, start, start - last_ts, ts_to_double(&tp) - start);
+		// maybe should count startup separately
+		if (count == 100 || mark < minmark) minmark = mark;
+		if (count == 100 || mark > maxmark) maxmark = mark;
+	  	LOGI("callback %4i: %.6f (+%.6f) %.6f", count, mark, start - last_ts, ts_to_double(&tp) - start);
 	  	if (count == 999) {
 	  		double jitter = maxmark - minmark;
 	  		double jitterms = jitter * global_bufsize / global_sample_rate * 1000;
