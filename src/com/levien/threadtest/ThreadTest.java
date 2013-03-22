@@ -81,7 +81,7 @@ public class ThreadTest extends Activity
         Button button = (Button) findViewById(R.id.button1);
         button.setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
-        		log(test());
+        		log(sljitter());
         		//tv.setText(tv.getText() + "\n" + test());
         	}
         });

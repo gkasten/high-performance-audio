@@ -172,6 +172,8 @@ int global_bufsize;
 int global_sample_rate;
 #define MAX_BUFFER_SIZE 4096
 
+#define TEST_LENGTH 1000
+
 struct renderctx {
 	sem_t wake_sem;
 	sem_t ready_sem;
@@ -179,6 +181,7 @@ struct renderctx {
 	int16_t buffer[MAX_BUFFER_SIZE * N_BUFFERS];
 	int render_ix;
 	int play_ix;
+	double callback_ts[TEST_LENGTH];
 	double mark_jitter;
 };
 
@@ -253,8 +256,13 @@ double minmark, maxmark;
 void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
   void *data) {
 	struct renderctx *ctx = (struct renderctx *)data;
+	if (state > 0) {
+  		struct timespec tp;
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		ctx->callback_ts[count] = ts_to_double(&tp);
+	}
 #if 1
-  	if (count < 1000) {
+  	if (count < TEST_LENGTH) {
   		int delay = 9 * ((count / 50) & 1);
   		delay = 0;
   		struct timespec tp;
@@ -288,10 +296,10 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 	}
 #endif
 	count++;
-	if (count == 1000) {
+	if (count == TEST_LENGTH) {
 		sem_post(&ctx->done_sem);
 	}
-	if (count >= 1000) return;
+	if (count >= TEST_LENGTH) return;
 	int ok = sem_trywait(&ctx->ready_sem);
 	if (ok != 0) {
 		LOGI("underrun %d!", count);
@@ -315,54 +323,82 @@ void CreateEngine() {
     assert(SL_RESULT_SUCCESS == result);
 
     result = (*engineObject)->GetInterface(engineObject, SL_IID_ENGINE,
-      &engineEngine);
+      	&engineEngine);
     assert(SL_RESULT_SUCCESS == result);
 
     result = (*engineEngine)->CreateOutputMix(engineEngine, &outputMixObject,
-      0, NULL, NULL);
+      	0, NULL, NULL);
     assert(SL_RESULT_SUCCESS == result);
     result = (*outputMixObject)->Realize(outputMixObject, SL_BOOLEAN_FALSE);
     assert(SL_RESULT_SUCCESS == result);
     LOGI("engine started");
 }
 
+void SetupPlayer() {
+  	SLDataLocator_AndroidSimpleBufferQueue loc_bufq =
+    	{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, N_BUFFERS};
+  	SLDataFormat_PCM format_pcm = {
+    	SL_DATAFORMAT_PCM, 1, global_sample_rate * 1000,
+    	SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
+    	SL_SPEAKER_FRONT_CENTER, SL_BYTEORDER_LITTLEENDIAN
+      // TODO: compute real endianness
+  	};
+  	SLDataSource audio_src = {&loc_bufq, &format_pcm};
+  	SLDataLocator_OutputMix loc_outmix = {SL_DATALOCATOR_OUTPUTMIX,
+    	outputMixObject};
+  	SLDataSink audio_sink = {&loc_outmix, NULL};
+  	const SLInterfaceID ids[2] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
+  	const SLboolean req[2] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
+  	SLresult result;
+  	result = (*engineEngine)->CreateAudioPlayer(engineEngine, &bqPlayerObject,
+      	&audio_src, &audio_sink, 2, ids, req);
+  	assert(SL_RESULT_SUCCESS == result);
+  	result = (*bqPlayerObject)->Realize(bqPlayerObject, SL_BOOLEAN_FALSE);
+  	assert(SL_RESULT_SUCCESS == result);
+  	result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_PLAY,
+      	&bq_player_play);
+  	assert(SL_RESULT_SUCCESS == result);
+  	result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_BUFFERQUEUE,
+      	&bq_player_buffer_queue);
+  	assert(SL_RESULT_SUCCESS == result);
+
+}
+
+void ShutdownEngine() {
+    SLresult result;
+	LOGI("shutting down engine");
+  	if (bqPlayerObject != NULL) {
+		result = (*bq_player_play)->SetPlayState(bq_player_play,
+			SL_PLAYSTATE_PAUSED);
+		assert(SL_RESULT_SUCCESS == result);
+    	(*bqPlayerObject)->Destroy(bqPlayerObject);
+    	bqPlayerObject = NULL;
+    	bq_player_play = NULL;
+    	bq_player_buffer_queue = NULL;
+  	}
+  	if (outputMixObject != NULL) {
+    	(*outputMixObject)->Destroy(outputMixObject);
+    	outputMixObject = NULL;
+  	}
+  	if (engineObject != NULL) {
+    	(*engineObject)->Destroy(engineObject);
+    	engineObject = NULL;
+    	engineEngine = NULL;
+  	}
+}
+
 void Java_com_levien_threadtest_ThreadTest_initAudio(JNIEnv *env, jobject thiz, jint sample_rate, jint buf_size)
 {
 	global_sample_rate = sample_rate;
 	global_bufsize = buf_size;
-  CreateEngine();
-  SLDataLocator_AndroidSimpleBufferQueue loc_bufq =
-    {SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, N_BUFFERS};
-  SLDataFormat_PCM format_pcm = {
-    SL_DATAFORMAT_PCM, 1, sample_rate * 1000,
-    SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
-    SL_SPEAKER_FRONT_CENTER, SL_BYTEORDER_LITTLEENDIAN
-      // TODO: compute real endianness
-  };
-  SLDataSource audio_src = {&loc_bufq, &format_pcm};
-  SLDataLocator_OutputMix loc_outmix = {SL_DATALOCATOR_OUTPUTMIX,
-    outputMixObject};
-  SLDataSink audio_sink = {&loc_outmix, NULL};
-  const SLInterfaceID ids[2] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
-  const SLboolean req[2] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
-  SLresult result;
-  result = (*engineEngine)->CreateAudioPlayer(engineEngine, &bqPlayerObject,
-      &audio_src, &audio_sink, 2, ids, req);
-  assert(SL_RESULT_SUCCESS == result);
-  result = (*bqPlayerObject)->Realize(bqPlayerObject, SL_BOOLEAN_FALSE);
-  assert(SL_RESULT_SUCCESS == result);
-  result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_PLAY,
-      &bq_player_play);
-  assert(SL_RESULT_SUCCESS == result);
-  result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_BUFFERQUEUE,
-      &bq_player_buffer_queue);
-  assert(SL_RESULT_SUCCESS == result);
-
 }
 
 jstring
 Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
     jobject thiz) {
+
+  	CreateEngine();
+  	SetupPlayer();
 
 	init_renderctx(&global_renderctx);
 	pthread_t thread;
@@ -375,11 +411,13 @@ Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
         &BqPlayerCallback, &global_renderctx);
 	assert(SL_RESULT_SUCCESS == result);
 
+	count = 0;
 	BqPlayerCallback(bq_player_buffer_queue, &global_renderctx);
 	result = (*bq_player_play)->SetPlayState(bq_player_play,
 		SL_PLAYSTATE_PLAYING);
 	assert(SL_RESULT_SUCCESS == result);
     sem_wait(&global_renderctx.done_sem);
+    ShutdownEngine();
 	char buf[256];
 	sprintf(buf, "OpenSL callback jitter = %.3fms", global_renderctx.mark_jitter);
     return (*env)->NewStringUTF(env, buf);
@@ -446,4 +484,3 @@ Java_com_levien_threadtest_ThreadTest_cpuBound(JNIEnv *env, jobject thiz)
 	sprintf(buf, "%d iters in %.6fs", n2, delta);
     return (*env)->NewStringUTF(env, buf);
 }
-
