@@ -172,7 +172,7 @@ int global_bufsize;
 int global_sample_rate;
 #define MAX_BUFFER_SIZE 4096
 
-#define TEST_LENGTH 1000
+#define TEST_LENGTH 10000
 
 struct renderctx {
 	sem_t wake_sem;
@@ -182,13 +182,20 @@ struct renderctx {
 	int render_ix;
 	int play_ix;
 	double callback_ts[TEST_LENGTH];
+	double thread_ts[TEST_LENGTH];
+	double render_ts[TEST_LENGTH];
+	int delay100us_cb;
+	int delay100us_render;
+	jboolean pulse;
 	double mark_jitter;
 };
 
 struct renderctx global_renderctx;
 
+#define BUF_DELAY 0
+
 void init_renderctx(struct renderctx *ctx) {
-	sem_init(&ctx->wake_sem, 0, 2);
+	sem_init(&ctx->wake_sem, 0, BUF_DELAY);
 	sem_init(&ctx->ready_sem, 0, 0);
 	sem_init(&ctx->done_sem, 0, 0);
 	ctx->render_ix = 0;
@@ -212,7 +219,6 @@ double last_ts = 0;
 
 int state = 0;
 int count;
-double delays[1000];
 
 int spin(int n) {
 	int k = 1;
@@ -235,19 +241,23 @@ int spinms(int n) {
 }
 
 void *render_thread(void *data) {
-	int s = setpriority(PRIO_PROCESS, gettid(), -16);
+	int s = setpriority(PRIO_PROCESS, gettid(), -20);
 	struct renderctx *ctx = (struct renderctx *)data;
 
-	while (1) {
+	int i;
+	for (i = 0; i < TEST_LENGTH; i++) {
 		sem_wait(&ctx->wake_sem);
-		char buf[1];
 		struct timespec tp;
 		clock_gettime(CLOCK_MONOTONIC, &tp);
-		//ctx->rd_time[i] = ts_to_double(&tp);
-  		int delay = 0;
-  		spinms(delay);
+		ctx->thread_ts[i] = ts_to_double(&tp);
+		int delay = ctx->delay100us_cb;
+		if (ctx->pulse) delay *= ((i / 50) & 1);
+  		spin100us(ctx->delay100us_render);
+		clock_gettime(CLOCK_MONOTONIC, &tp);
+		ctx->render_ts[i] = ts_to_double(&tp);
 		sem_post(&ctx->ready_sem);
 	}
+	LOGI("render thread complete");
 	return NULL;
 }
 
@@ -256,36 +266,24 @@ double minmark, maxmark;
 void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
   void *data) {
 	struct renderctx *ctx = (struct renderctx *)data;
-	if (state > 0) {
-  		struct timespec tp;
-		clock_gettime(CLOCK_MONOTONIC, &tp);
-		ctx->callback_ts[count] = ts_to_double(&tp);
-	}
 #if 1
   	if (count < TEST_LENGTH) {
-  		int delay = 9 * ((count / 50) & 1);
-  		delay = 0;
+  		int delay = ctx->delay100us_cb;
+		if (ctx->pulse) delay *= ((count / 50) & 1);
+  		//delay = ctx->delay100us;
   		struct timespec tp;
 		clock_gettime(CLOCK_MONOTONIC, &tp);
 		double start = ts_to_double(&tp);
+		ctx->callback_ts[count] = start;
 
 		spin100us(delay);
 		clock_gettime(CLOCK_MONOTONIC, &tp);
 
-		delays[count] = start - last_ts;
-#if 0
-		if (count == 999) {
-			int i;
-			for (i = 0; i < 100; i++) {
-	  			LOGI("delay[%d] = %.6f", i, delays[i]);
-	  		}
-		}
-#endif
 		double mark = start * global_sample_rate / global_bufsize - count;
 		// maybe should count startup separately
 		if (count == 100 || mark < minmark) minmark = mark;
 		if (count == 100 || mark > maxmark) maxmark = mark;
-	  	LOGI("callback %4i: %.6f (+%.6f) %.6f", count, mark, start - last_ts, ts_to_double(&tp) - start);
+	  	//LOGI("callback %4i: %.6f (+%.6f) %.6f", count, mark, start - last_ts, ts_to_double(&tp) - start);
 	  	if (count == 999) {
 	  		double jitter = maxmark - minmark;
 	  		double jitterms = jitter * global_bufsize / global_sample_rate * 1000;
@@ -295,11 +293,6 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 	  	last_ts = start;
 	}
 #endif
-	count++;
-	if (count == TEST_LENGTH) {
-		sem_post(&ctx->done_sem);
-	}
-	if (count >= TEST_LENGTH) return;
 	int ok = sem_trywait(&ctx->ready_sem);
 	if (ok != 0) {
 		LOGI("underrun %d!", count);
@@ -311,7 +304,11 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 		buf_ptr, global_bufsize * 2);
 	assert(SL_RESULT_SUCCESS == result);
 	ctx->play_ix = (ctx->play_ix + 1) % N_BUFFERS;
-	if (ok == 0) sem_post(&ctx->wake_sem);
+	if (count < TEST_LENGTH - BUF_DELAY) sem_post(&ctx->wake_sem);
+	count++;
+	if (count == TEST_LENGTH) {
+		sem_post(&ctx->done_sem);
+	}
 }
 
 void CreateEngine() {
@@ -395,12 +392,14 @@ void Java_com_levien_threadtest_ThreadTest_initAudio(JNIEnv *env, jobject thiz, 
 
 jstring
 Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
-    jobject thiz) {
+    jobject thiz, jdoubleArray arr, jint delay100us_cb, jint delay100us_render, jboolean pulse) {
 
   	CreateEngine();
   	SetupPlayer();
 
 	init_renderctx(&global_renderctx);
+	global_renderctx.delay100us_cb = delay100us_cb;
+	global_renderctx.delay100us_render = delay100us_render;
 	pthread_t thread;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
@@ -417,11 +416,15 @@ Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
 		SL_PLAYSTATE_PLAYING);
 	assert(SL_RESULT_SUCCESS == result);
     sem_wait(&global_renderctx.done_sem);
+    void *res;
+    pthread_join(thread, &res);
     ShutdownEngine();
 	char buf[256];
+	(*env)->SetDoubleArrayRegion(env, arr, 0, TEST_LENGTH, global_renderctx.callback_ts);
+	(*env)->SetDoubleArrayRegion(env, arr, TEST_LENGTH, TEST_LENGTH, global_renderctx.thread_ts);
+	(*env)->SetDoubleArrayRegion(env, arr, 2 * TEST_LENGTH, TEST_LENGTH, global_renderctx.render_ts);
 	sprintf(buf, "OpenSL callback jitter = %.3fms", global_renderctx.mark_jitter);
     return (*env)->NewStringUTF(env, buf);
-
 }
 
 /* Adapted from hello jni example */
