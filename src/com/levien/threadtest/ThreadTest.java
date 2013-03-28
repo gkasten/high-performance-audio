@@ -24,30 +24,48 @@ import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
-import android.view.WindowManager;
 import android.view.View.OnClickListener;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class ThreadTest extends Activity
 {
 	int count = 0;
-	final static int TEST_LENGTH = 10000;
-	public class AudioParams {
+	final static int TEST_LENGTH = 2000;
+	class AudioParams {
 		AudioParams(int sr, int bs) {
+			confident = false;
 			sampleRate = sr;
 			bufferSize = bs;
 		}
+		public String toString() {
+			return "sampleRate=" + sampleRate + " bufferSize=" + bufferSize;
+		}
+		boolean confident;
 		int sampleRate;
 		int bufferSize;
 	}
 	AudioParams params;
 	
-	public class JitterMeasurement {
+	class JitterMeasurement {
 		double rate;
 		double jitter;
 	}
 
+	class ThreadMeasurement {
+		double renderStart;
+		double renderEnd;
+		public String toString() {
+			NumberFormat f = NumberFormat.getInstance();
+			f.setMinimumFractionDigits(3);
+			f.setMaximumFractionDigits(3);
+			return "renderStart=" + f.format(renderStart * 1000) + ", renderEnd=" +
+				f.format(renderEnd * 1000);
+		}
+	}
+	
 	public class TestThread implements Runnable {
 
 		@Override
@@ -57,15 +75,35 @@ public class ThreadTest extends Activity
 			double ts[] = new double[TEST_LENGTH * 3];
 			sljitter(ts, 0, 0, false);
 			AudioParams newParams = analyzeBufferSize(params, ts);
+			logUI("detected params: " + newParams);
+			updateAudioParams(params, newParams);
 	        initAudio(params.sampleRate, params.bufferSize);
-			for (int i = 0; i < 20; i += 2) {
-				logUI(i*.1 + ": " + sljitter(ts, i, 0, false));
-				JitterMeasurement jm = analyzeDrift(ts);
-				if (i == 0) {
-					reportDrift(newParams, jm);
+	        double rate = 0.0;
+	        for (int exp = 0; exp < 4; exp++) {
+	        	boolean pulsed = (exp & 1) != 0;
+	        	boolean runInThread = (exp & 2) != 0;
+	        	logUI("experiment: " + (pulsed ? "pulsed" : "not pulsed") +
+	        			(runInThread ? " in thread" : ""));
+	        	int badCount = 0;
+		        for (int i = 0; i < 100; i += 2) {
+		    		NumberFormat f = NumberFormat.getInstance();
+		    		f.setMinimumFractionDigits(1);
+		    		f.setMaximumFractionDigits(1);
+					logUI(f.format(i*.1) + ": " + sljitter(ts, runInThread ? 0 : i,
+							runInThread ? i : 0, pulsed));
+					JitterMeasurement jm = analyzeDrift(ts, rate);
+					if (rate == 0) rate = jm.rate;
+					if (i == 0 && exp == 0) {
+						reportDrift(newParams, jm);
+					}
+					ThreadMeasurement tm = analyzeJitter(ts);
+					logUI(tm.toString());
+					if (jm.jitter > 0.02 || tm.renderEnd > 0.06) badCount++;
+					else badCount = 0;
+					if (badCount >= 2) break;
 				}
-				logUI(analyzeJitter(ts));
-			}
+		        logUI("");
+	        }
 		}
 		
 		AudioParams analyzeBufferSize(AudioParams params, double[] arr) {
@@ -84,7 +122,14 @@ public class ThreadTest extends Activity
 			return newParams;
 		}
 		
-		JitterMeasurement analyzeDrift(double[] arr) {
+		void updateAudioParams(AudioParams dst, AudioParams src) {
+			if (!dst.confident) {
+				dst.sampleRate = src.sampleRate;
+				dst.bufferSize = src.bufferSize;
+			}
+		}
+		
+		JitterMeasurement analyzeDrift(double[] arr, double forceRate) {
 			final int startupSkip = 100;
 			int n = arr.length / 3;
 			// Do linear regression to find timing drift
@@ -99,23 +144,28 @@ public class ThreadTest extends Activity
 				x2s += x * x;
 			}
 			double beta = (count * xys - xs * ys) / (count * x2s - xs * xs);
-			double alpha = (ys - beta * xs) / count;
+			double jitRate = forceRate == 0 ? beta : forceRate;
+			//double alpha = (ys - beta * xs) / count;
 			double minJit = 0;
 			double maxJit = 0;
 			for (int i = startupSkip; i < n; i++) {
-				double err = alpha + beta * i - arr[i];
+				double err = jitRate * i - arr[i];
 				if (i == startupSkip || err < minJit) minJit = err;
 				if (i == startupSkip || err > maxJit) maxJit = err;
 			}
 			JitterMeasurement jm = new JitterMeasurement();
 			jm.rate = beta;
 			jm.jitter = maxJit - minJit;
-			logUI("ms per tick = " + jm.rate * 1000 + "; jitter (lr) = " + jm.jitter * 1000);
+			NumberFormat f = NumberFormat.getInstance();
+			f.setMinimumFractionDigits(3);
+			f.setMaximumFractionDigits(3);
+			logUI("ms per tick = " + f.format(jm.rate * 1000) +
+					"; jitter (lr) = " + f.format(jm.jitter * 1000));
 			return jm;
 		}
 
 		void reportDrift(AudioParams params, JitterMeasurement jm) {
-			double actualSr = params.sampleRate / jm.rate;
+			double actualSr = params.bufferSize / jm.rate;
 			logUI("Actual sample rate = " + actualSr);
 		}
 
@@ -133,7 +183,10 @@ public class ThreadTest extends Activity
 	synchronized void log(String text) {
 		msgLog += text + "\n";
         final TextView tv = (TextView) findViewById(R.id.textView1);
-        tv.setText(msgLog);
+        //tv.setText(msgLog);
+        tv.append(text + "\n");
+        final ScrollView sv = (ScrollView) findViewById(R.id.scrollView);
+        sv.fullScroll(View.FOCUS_DOWN);
 	}
 	
     /** Called when the activity is first created. */
@@ -173,13 +226,13 @@ public class ThreadTest extends Activity
         AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
     	String sr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
     	String bs = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
-    	log("Sample rate = " + sr + ", buf size = " + bs);
+    	params.confident = true;
     	params.sampleRate = Integer.parseInt(sr);
     	params.bufferSize = Integer.parseInt(bs);
-
+    	log("from platform: " + params);
     }
 	
-	String analyzeJitter(double[] arr) {
+	ThreadMeasurement analyzeJitter(double[] arr) {
 		int n = arr.length / 3;
 		double maxThreadDelay = 0;
 		double maxRenderDelay = 0;
@@ -193,7 +246,10 @@ public class ThreadTest extends Activity
 		NumberFormat f = NumberFormat.getInstance();
 		f.setMinimumFractionDigits(3);
 		f.setMaximumFractionDigits(3);
-		return "maxThread=" + f.format(maxThreadDelay * 1000) + "; maxRender=" + f.format(maxRenderDelay * 1000);
+		ThreadMeasurement tm = new ThreadMeasurement();
+		tm.renderStart = maxThreadDelay;
+		tm.renderEnd = maxRenderDelay;
+		return tm;
 	}
 
 	public native void initAudio(int sample_rate, int buf_size);

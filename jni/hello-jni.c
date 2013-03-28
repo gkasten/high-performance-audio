@@ -172,7 +172,7 @@ int global_bufsize;
 int global_sample_rate;
 #define MAX_BUFFER_SIZE 4096
 
-#define TEST_LENGTH 10000
+#define TEST_LENGTH 2000
 
 struct renderctx {
 	sem_t wake_sem;
@@ -250,9 +250,9 @@ void *render_thread(void *data) {
 		struct timespec tp;
 		clock_gettime(CLOCK_MONOTONIC, &tp);
 		ctx->thread_ts[i] = ts_to_double(&tp);
-		int delay = ctx->delay100us_cb;
+		int delay = ctx->delay100us_render;
 		if (ctx->pulse) delay *= ((i / 50) & 1);
-  		spin100us(ctx->delay100us_render);
+  		spin100us(delay);
 		clock_gettime(CLOCK_MONOTONIC, &tp);
 		ctx->render_ts[i] = ts_to_double(&tp);
 		sem_post(&ctx->ready_sem);
@@ -400,6 +400,7 @@ Java_com_levien_threadtest_ThreadTest_sljitter(JNIEnv *env,
 	init_renderctx(&global_renderctx);
 	global_renderctx.delay100us_cb = delay100us_cb;
 	global_renderctx.delay100us_render = delay100us_render;
+	global_renderctx.pulse = pulse;
 	pthread_t thread;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
