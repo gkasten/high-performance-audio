@@ -15,7 +15,21 @@
  */
 package com.levien.threadtest;
 
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -33,7 +47,8 @@ import android.widget.TextView;
 public class ThreadTest extends Activity
 {
 	int count = 0;
-	final static int TEST_LENGTH = 2000;
+	final static int SR_TEST_LENGTH = 10000;
+	final static int TEST_LENGTH = 10000;
 	class AudioParams {
 		AudioParams(int sr, int bs) {
 			confident = false;
@@ -55,14 +70,16 @@ public class ThreadTest extends Activity
 	}
 
 	class ThreadMeasurement {
+		double cbDone;
 		double renderStart;
 		double renderEnd;
 		public String toString() {
 			NumberFormat f = NumberFormat.getInstance();
 			f.setMinimumFractionDigits(3);
 			f.setMaximumFractionDigits(3);
-			return "renderStart=" + f.format(renderStart * 1000) + ", renderEnd=" +
-				f.format(renderEnd * 1000);
+			return "cbDone=" + f.format(cbDone * 1000) +
+					", renderStart=" + f.format(renderStart * 1000) +
+					", renderEnd=" + f.format(renderEnd * 1000);
 		}
 	}
 	
@@ -71,12 +88,14 @@ public class ThreadTest extends Activity
 		@Override
 		public void run() {
 			logUI(cpuBound());
+			logUI("audio tests based on " + TEST_LENGTH + " samples");
 			initAudio(params.sampleRate, 64);
-			double ts[] = new double[TEST_LENGTH * 3];
-			sljitter(ts, 0, 0, false);
+			double ts[] = new double[SR_TEST_LENGTH * 4];
+			sljitter(ts, SR_TEST_LENGTH, 0, 0, false);
 			AudioParams newParams = analyzeBufferSize(params, ts);
 			logUI("detected params: " + newParams);
 			updateAudioParams(params, newParams);
+			ts = new double[TEST_LENGTH * 4];
 	        initAudio(params.sampleRate, params.bufferSize);
 	        double rate = 0.0;
 	        for (int exp = 0; exp < 4; exp++) {
@@ -85,11 +104,12 @@ public class ThreadTest extends Activity
 	        	logUI("experiment: " + (pulsed ? "pulsed" : "not pulsed") +
 	        			(runInThread ? " in thread" : ""));
 	        	int badCount = 0;
-		        for (int i = 0; i < 100; i += 2) {
+		        for (int i = 0; i < 100; i += 1) {
 		    		NumberFormat f = NumberFormat.getInstance();
 		    		f.setMinimumFractionDigits(1);
 		    		f.setMaximumFractionDigits(1);
-					logUI(f.format(i*.1) + ": " + sljitter(ts, runInThread ? 0 : i,
+					logUI(f.format(i*.1) + ": " + sljitter(ts, TEST_LENGTH,
+							runInThread ? 0 : i,
 							runInThread ? i : 0, pulsed));
 					JitterMeasurement jm = analyzeDrift(ts, rate);
 					if (rate == 0) rate = jm.rate;
@@ -104,11 +124,12 @@ public class ThreadTest extends Activity
 				}
 		        logUI("");
 	        }
+	        postResults();
 		}
 		
 		AudioParams analyzeBufferSize(AudioParams params, double[] arr) {
 			final int startupSkip = 100;
-			int n = arr.length / 3;
+			int n = arr.length / 4;
 			int count = 0;
 			for (int i = startupSkip; i < n; i++) {
 				double delta = arr[i] - arr[i - 1];
@@ -131,7 +152,7 @@ public class ThreadTest extends Activity
 		
 		JitterMeasurement analyzeDrift(double[] arr, double forceRate) {
 			final int startupSkip = 100;
-			int n = arr.length / 3;
+			int n = arr.length / 4;
 			// Do linear regression to find timing drift
 			double xys = 0, xs = 0, ys = 0, x2s = 0;
 			int count = n - startupSkip;
@@ -177,6 +198,28 @@ public class ThreadTest extends Activity
 			});
 		}
 		
+		void postResults() {
+			HttpClient httpClient = new DefaultHttpClient();
+			HttpPost httpPost = new HttpPost("http://audiolatencytest.appspot.com/sign");
+			List<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>();
+			nameValuePairs.add(new BasicNameValuePair("content", msgLog));
+			try {
+				httpPost.setEntity(new UrlEncodedFormEntity(nameValuePairs));
+			} catch (UnsupportedEncodingException e) {
+				// it's just ascii, can't happen
+			}
+			try {
+				HttpResponse response = httpClient.execute(httpPost);
+				logUI(EntityUtils.toString(response.getEntity()));
+			} catch (ClientProtocolException e) {
+			} catch (IOException e) {
+			}
+			runOnUiThread(new Runnable() {
+				public void run() {
+			        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+				}
+			});
+		}
 	}
 	String msgLog = "";
 	
@@ -197,7 +240,7 @@ public class ThreadTest extends Activity
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.main);
-        log(Build.MANUFACTURER + " " + Build.MODEL + " " + Build.ID + " (api " + Build.VERSION.SDK_INT + ")");
+        log(Build.MANUFACTURER + " " + Build.MODEL + " " + Build.VERSION.RELEASE + " " + Build.ID + " (api " + Build.VERSION.SDK_INT + ")");
         
         //start();
         params = new AudioParams(44100, 768);
@@ -207,9 +250,9 @@ public class ThreadTest extends Activity
         Button button = (Button) findViewById(R.id.button1);
         button.setOnClickListener(new OnClickListener() {
         	public void onClick(View v) {
-        		double ts[] = new double[TEST_LENGTH * 3];
+        		double ts[] = new double[TEST_LENGTH * 4];
         		
-        		log(count + ": " + sljitter(ts, count, 0, false));
+        		log(count + ": " + sljitter(ts, TEST_LENGTH, count, 0, false));
         		count++;
         		for (int i = 0; i < 10; i++) {
         			log("" + i +": " + ts[i]);
@@ -233,13 +276,16 @@ public class ThreadTest extends Activity
     }
 	
 	ThreadMeasurement analyzeJitter(double[] arr) {
-		int n = arr.length / 3;
+		int n = arr.length / 4;
+		double maxCbDoneDelay = 0;
 		double maxThreadDelay = 0;
 		double maxRenderDelay = 0;
 		for (int i = 100; i < n; i++) {
 			double callback_ts = arr[i - 0];
-			double thread_ts = arr[n + i];
-			double render_ts = arr[2 * n + i];
+			double cbdone_ts = arr[n + i];
+			double thread_ts = arr[2 * n + i];
+			double render_ts = arr[3 * n + i];
+			maxCbDoneDelay = Math.max(maxCbDoneDelay, cbdone_ts - callback_ts);
 			maxThreadDelay = Math.max(maxThreadDelay, thread_ts - callback_ts);
 			maxRenderDelay = Math.max(maxRenderDelay, render_ts - callback_ts);
 		}
@@ -247,13 +293,14 @@ public class ThreadTest extends Activity
 		f.setMinimumFractionDigits(3);
 		f.setMaximumFractionDigits(3);
 		ThreadMeasurement tm = new ThreadMeasurement();
+		tm.cbDone = maxCbDoneDelay;
 		tm.renderStart = maxThreadDelay;
 		tm.renderEnd = maxRenderDelay;
 		return tm;
 	}
 
 	public native void initAudio(int sample_rate, int buf_size);
-    public native String sljitter(double ts[], int delay100us_cb, int delay100us_render, boolean pulse);
+    public native String sljitter(double ts[], int length, int delay100us_cb, int delay100us_render, boolean pulse);
     
     public native String test();
     public native String cpuBound();
