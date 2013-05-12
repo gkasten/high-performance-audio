@@ -44,11 +44,11 @@ import android.widget.Button;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-public class ThreadTest extends Activity
+public class AudioBufferSize extends Activity
 {
 	int count = 0;
 	final static int SR_TEST_LENGTH = 10000;
-	final static int TEST_LENGTH = 10000;
+	final static int TEST_LENGTH = 2000;
 	class AudioParams {
 		AudioParams(int sr, int bs) {
 			confident = false;
@@ -305,12 +305,7 @@ public class ThreadTest extends Activity
     public native String test();
     public native String cpuBound();
 
-    /* this is used to load the 'hello-jni' library on application
-     * startup. The library has already been unpacked into
-     * /data/data/com.example.hellojni/lib/libhello-jni.so at
-     * installation time by the package manager.
-     */
     static {
-        System.loadLibrary("hello-jni");
+        System.loadLibrary("audiobufferjni");
     }
 }
