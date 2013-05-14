@@ -31,7 +31,7 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 
-import com.levien.threadtest.R;
+import com.levien.audiobuffersize.R;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
