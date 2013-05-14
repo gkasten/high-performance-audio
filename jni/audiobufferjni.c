@@ -388,14 +388,14 @@ void ShutdownEngine() {
   	}
 }
 
-void Java_com_levien_threadtest_AudioBufferSize_initAudio(JNIEnv *env, jobject thiz, jint sample_rate, jint buf_size)
+void Java_com_levien_audiobuffersize_AudioBufferSize_initAudio(JNIEnv *env, jobject thiz, jint sample_rate, jint buf_size)
 {
 	global_sample_rate = sample_rate;
 	global_bufsize = buf_size;
 }
 
 jstring
-Java_com_levien_threadtest_AudioBufferSize_sljitter(JNIEnv *env,
+Java_com_levien_audiobuffersize_AudioBufferSize_sljitter(JNIEnv *env,
     jobject thiz, jdoubleArray arr, jint length, jint delay100us_cb, jint delay100us_render, jboolean pulse) {
 
   	CreateEngine();
@@ -436,7 +436,7 @@ Java_com_levien_threadtest_AudioBufferSize_sljitter(JNIEnv *env,
 
 /* Adapted from hello jni example */
 jstring
-Java_com_levien_threadtest_AudioBufferSize_test( JNIEnv* env,
+Java_com_levien_audiobuffersize_AudioBufferSize_test( JNIEnv* env,
                                                   jobject thiz )
 {
 	char buf[256];
@@ -474,7 +474,7 @@ Java_com_levien_threadtest_AudioBufferSize_test( JNIEnv* env,
 }
 
 jstring
-Java_com_levien_threadtest_AudioBufferSize_cpuBound(JNIEnv *env, jobject thiz)
+Java_com_levien_audiobuffersize_AudioBufferSize_cpuBound(JNIEnv *env, jobject thiz)
 {
 	char buf[256];
 	int i;
