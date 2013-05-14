@@ -5,12 +5,45 @@
     android:orientation="vertical" >
 
     <Button
-        android:id="@+id/button1"
+        android:id="@+id/startbutton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/starttest" />
+        android:text="@string/starttest"
+        android:layout_marginTop="50dp"
+        android:layout_marginBottom="10dp"
+        android:layout_gravity="center_horizontal"/>
 
-    <ScrollView
+   	<TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+	    android:text="@string/yourbuffersize"/>
+   	<TextView
+   	    android:id="@+id/buffersize"
+   	    android:textSize="30sp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+		android:layout_gravity="center_horizontal"
+	    />
+   	<TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+	    android:text="@string/yoursamplerate"/>
+   	<TextView
+   	    android:id="@+id/samplerate"
+   	    android:textSize="30sp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+		android:layout_gravity="center_horizontal"
+	    />
+   	<Button
+        android:id="@+id/upload"
+        android:enabled="false"
+        android:layout_marginBottom="30dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/upload"
+        android:layout_gravity="center_horizontal"/>
+   	<ScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" >
