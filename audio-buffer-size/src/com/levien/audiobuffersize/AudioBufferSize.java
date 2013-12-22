@@ -89,8 +89,13 @@ public class AudioBufferSize extends Activity
 
 		@Override
 		public void run() {
+	        logUI(Build.MANUFACTURER + " " + Build.MODEL + " " + Build.VERSION.RELEASE + " " + Build.ID + " (api " + Build.VERSION.SDK_INT + ")");
 			logUI(cpuBound());
 			logUI("audio tests based on " + TEST_LENGTH + " samples");
+	        params = new AudioParams(44100, 64);
+	        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+	            getJbMr1Params(params);
+	        }
 			initAudio(params.sampleRate, 64);
 			double ts[] = new double[SR_TEST_LENGTH * 4];
 			sljitter(ts, SR_TEST_LENGTH, 0, 0, false);
@@ -126,7 +131,7 @@ public class AudioBufferSize extends Activity
 				}
 		        logUI("");
 	        }
-	        postResults();
+	        postResults("http://audiolatencytest.appspot.com/sign");
 		}
 		
 		void updateAudioParams(AudioParams dst, AudioParams src) {
@@ -260,7 +265,7 @@ public class AudioBufferSize extends Activity
         		uploadButton.setEnabled(false);
         		new Thread(new Runnable() {
         			public void run() {
-        				postResults();
+        				postResults("http://audiobuffersize.appspot.com/sign");
         			}
         		}).start();
         	}
@@ -353,9 +358,9 @@ public class AudioBufferSize extends Activity
 		return jm;
 	}
 
-	void postResults() {
+	void postResults(String url) {
 		HttpClient httpClient = new DefaultHttpClient();
-		HttpPost httpPost = new HttpPost("http://audiobuffersize.appspot.com/sign");
+		HttpPost httpPost = new HttpPost(url);
 		List<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>();
 		nameValuePairs.add(new BasicNameValuePair("content", msgLog));
 		try {

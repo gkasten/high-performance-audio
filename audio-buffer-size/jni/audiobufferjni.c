@@ -222,20 +222,23 @@ double last_ts = 0;
 
 int state = 0;
 int count;
+pthread_t global_render_thread;
 
 int spin(int n) {
-	int k = 1;
+	uint32_t x = 1;
 	int i;
 	for (i = 0; i < n; i++) {
-		k *= 32;
+	    x += 42;
+	    x += (x << 10);
+	    x ^= (x >> 6);
 	}
-	return k;
+	return x;
 }
 
 int spin100us(int n) {
 	int i;
 	for (i = 0; i < n; i++) {
-		spin(12987);
+		spin(30083);
 	}
 }
 
@@ -244,11 +247,17 @@ int spinms(int n) {
 }
 
 void *render_thread(void *data) {
-	int s = setpriority(PRIO_PROCESS, gettid(), -20);
 	struct renderctx *ctx = (struct renderctx *)data;
+	struct sched_param param;
+
+	param.sched_priority = 1;
+	int result = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+	if (result != 0) {
+		LOGI("error %d setting thread priority", result);
+	}
 
 	int i;
-	for (i = 0; i < ctx->length; i++) {
+	for (i = 1; i < ctx->length; i++) {
 		sem_wait(&ctx->wake_sem);
 		struct timespec tp;
 		clock_gettime(CLOCK_MONOTONIC, &tp);
@@ -269,6 +278,12 @@ double minmark, maxmark;
 void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
   void *data) {
 	struct renderctx *ctx = (struct renderctx *)data;
+	if (count == 1) {
+		pthread_attr_t attr;
+		pthread_attr_init(&attr);
+		pthread_create(&global_render_thread, &attr, render_thread, &global_renderctx);
+		pthread_setname_np(global_render_thread, "RenderThread");
+	}
 #if 1
   	if (count < ctx->length) {
   		int delay = ctx->delay100us_cb;
@@ -297,9 +312,11 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 	  	last_ts = start;
 	}
 #endif
-	int ok = sem_trywait(&ctx->ready_sem);
-	if (ok != 0) {
-		LOGI("underrun %d!", count);
+	if (count >= 1) {
+		int ok = sem_trywait(&ctx->ready_sem);
+		if (ok != 0) {
+			LOGI("underrun %d!", count);
+		}
 	}
 	int16_t *buf_ptr = ctx->buffer + global_bufsize * ctx->play_ix;
 	memset(buf_ptr, 0, global_bufsize * sizeof(int16_t));
@@ -308,7 +325,7 @@ void BqPlayerCallback(SLAndroidSimpleBufferQueueItf queueItf,
 		buf_ptr, global_bufsize * 2);
 	assert(SL_RESULT_SUCCESS == result);
 	ctx->play_ix = (ctx->play_ix + 1) % N_BUFFERS;
-	if (count < ctx->length - BUF_DELAY) sem_post(&ctx->wake_sem);
+	if (count >= 1 && count < ctx->length - BUF_DELAY) sem_post(&ctx->wake_sem);
 	count++;
 	if (count == ctx->length) {
 		sem_post(&ctx->done_sem);
@@ -406,10 +423,6 @@ Java_com_levien_audiobuffersize_AudioBufferSize_sljitter(JNIEnv *env,
 	global_renderctx.delay100us_cb = delay100us_cb;
 	global_renderctx.delay100us_render = delay100us_render;
 	global_renderctx.pulse = pulse;
-	pthread_t thread;
-	pthread_attr_t attr;
-	pthread_attr_init(&attr);
-	pthread_create(&thread, &attr, render_thread, &global_renderctx);
 	SLresult result;
 
 	result = (*bq_player_buffer_queue)->RegisterCallback(bq_player_buffer_queue,
@@ -423,7 +436,7 @@ Java_com_levien_audiobuffersize_AudioBufferSize_sljitter(JNIEnv *env,
 	assert(SL_RESULT_SUCCESS == result);
     sem_wait(&global_renderctx.done_sem);
     void *res;
-    pthread_join(thread, &res);
+    pthread_join(global_render_thread, &res);
     ShutdownEngine();
 	char buf[256];
 	(*env)->SetDoubleArrayRegion(env, arr, 0, length, global_renderctx.callback_ts);
@@ -477,18 +490,12 @@ jstring
 Java_com_levien_audiobuffersize_AudioBufferSize_cpuBound(JNIEnv *env, jobject thiz)
 {
 	char buf[256];
-	int i;
-	int n = 129870;
-	int n2 = 1000;
-	for (i = 0; i < 1000; i++) {
-		spin(n);
-	}
+	spinms(200);
 	struct timespec tp;
 	clock_gettime(CLOCK_MONOTONIC, &tp);
 	double start = ts_to_double(&tp);
-	for (i = 0; i < n2; i++) {
-		spin(n);
-	}
+	int n2 = 1000;
+	spinms(n2);
 	clock_gettime(CLOCK_MONOTONIC, &tp);
 	double delta = ts_to_double(&tp) - start;
 	sprintf(buf, "%d iters in %.6fs", n2, delta);
