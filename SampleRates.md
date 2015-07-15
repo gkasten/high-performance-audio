@@ -1,3 +1,5 @@
+Sample Rates
+
 # Resamplers in L Developer Preview #
 
 As of L Developer Preview, the audio resamplers are now entirely based
@@ -19,7 +21,7 @@ quality than for arbitrary frequency conversion.
 In L Developer Preview, we have both increased quality as well as speed
 to achieve that quality.  But resamplers can introduce small amounts
 of passband ripple and aliasing harmonic noise, and can cause some high
-frequency loss in the transition band, so don’t use unnecessarily.
+frequency loss in the transition band, so don't use unnecessarily.
 
 # Tips & Tricks #
 
@@ -76,7 +78,7 @@ increasing the filter length. There are no similar aliasing concerns for
 upsampling.  Note that some parts of the audio pipeline in L developer
 preview may prevent downsampling greater than 2:1.
 
-## Don’t resample if you are concerned about latency ##
+## Don't resample if you are concerned about latency ##
 Use of a resampler prevents the track from being placed in the FastMixer
 path, which means a significantly higher latency due to an additional
 buffer (and its larger size) in the ordinary Mixer path. Furthermore,
@@ -111,7 +113,7 @@ in Signal Processing.)
 # Online resources #
 ## Sample rates ##
 
-[Sampling (signal processing)](http://en.wikipedia.org/wiki/Sampling_(signal_processing)) at Wikipedia
+[Sampling (signal processing)](http://en.wikipedia.org/wiki/Sampling_%28signal_processing%29) at Wikipedia
 
 ## Resampling ##
 
@@ -127,7 +129,7 @@ by Christopher "Monty" Montgomery of Xiph.Org
 [D/A and A/D | Digital Show and Tell](https://www.youtube.com/watch?v=cIQ9IXSUzuM)
 video by Christopher "Monty" Montgomery of Xiph.Org
 
-[The Science of Sample Rates (When Higher Is Better — And When It Isn’t)](http://www.trustmeimascientist.com/2013/02/04/the-science-of-sample-rates-when-higher-is-better-and-when-it-isnt/)
+[The Science of Sample Rates (When Higher Is Better - And When It Isn't)](http://www.trustmeimascientist.com/2013/02/04/the-science-of-sample-rates-when-higher-is-better-and-when-it-isnt/)
 
 [Audio Myths & DAW Wars](http://www.image-line.com/support/FLHelp/html/app_audio.htm)
 
@@ -136,4 +138,4 @@ video by Christopher "Monty" Montgomery of Xiph.Org
 [192kHz/24bit vs. 96kHz/24bit "debate"- Interesting revelation](http://forums.stevehoffman.tv/threads/192khz-24bit-vs-96khz-24bit-debate-interesting-revelation.317660/)
 
 [Hearing Disability Assessment](http://www.dohc.ie/publications/pdf/hearing.pdf?direct=1)
-Report of the Expert Hearing Group, Published by the Department of Health and Children © 1998
+Report of the Expert Hearing Group, Published by the Department of Health and Children (C) 1998

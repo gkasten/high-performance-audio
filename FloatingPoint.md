@@ -1,11 +1,15 @@
+Floating-point audio
+
 # Comparison of floating-point with integer or fixed-point #
 
 Advantages of floating-point:
+
   * wider dynamic range
   * consistent accuracy across the dynamic range
   * more headroom to avoid clipping during intermediate calculations and transients
 
 Disadvantages of floating-point:
+
   * uses more memory
   * surprising properties, for example addition is not associative
   * potential loss of arithmetic precision due to rounding or numerically unstable algorithms
@@ -22,6 +26,7 @@ Modern CPUs also support [SIMD](http://en.wikipedia.org/wiki/SIMD)
 # Tips and Tricks #
 
 A few simple tips and tricks:
+
   * Use "double" for infrequent calculations, e.g. when computing filter coefficients
   * Pay attention to the order of operations
   * Declare explicit variables for intermediate values
@@ -52,6 +57,7 @@ since the Java hookup was not completed in time for the preview release.
 # Links #
 
 At Wikipedia:
+
   * [Audio bit depth](http://en.wikipedia.org/wiki/Audio_bit_depth)
   * [Floating point](http://en.wikipedia.org/wiki/Floating_point)
   * [IEEE 754 floating-point](http://en.wikipedia.org/wiki/IEEE_floating_point)

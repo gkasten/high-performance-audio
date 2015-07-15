@@ -1,4 +1,6 @@
-[Latency (audio)](http://en.wikipedia.org/wiki/Latency_(audio)) at Wikipedia
+Resources for audio latency
+
+[Latency (audio)](http://en.wikipedia.org/wiki/Latency_%28audio%29) at Wikipedia
 
 [Round-trip delay time](http://en.wikipedia.org/wiki/Round-trip_delay_time) at Wikipedia
 

@@ -1,4 +1,7 @@
+Resources for Android native audio based on OpenSL ES
+
 After installing Android NDK, the native audio documentation is at
+
 ```
 <NDK_ROOT>/docs/opensles/index.html
 ```

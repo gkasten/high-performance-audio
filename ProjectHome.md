@@ -1,4 +1,22 @@
-See external links at below left for follow-up resources.
+## External Links ##
+
+See external links below for follow-up resources.
+
+[Porting the Android audio framework](http://source.android.com/devices/audio.html)
+
+[Source code for audio-buffer-size](https://code.google.com/p/high-performance-audio/source/browse/)
+
+[Developer Support Resources](http://developer.android.com/support.html)
+
+[andraudio discussion list for Android audio developers (unofficial)](http://music.columbia.edu/mailman/listinfo/andraudio)
+
+[API level 17 native audio configuration](http://developer.android.com/reference/android/media/AudioManager.html#getProperty%28java.lang.String%29)
+
+[opensl_stream library](https://github.com/nettoyeurny/opensl_stream)
+
+[Music Synthesizer for Android](https://code.google.com/p/music-synthesizer-for-android/)
+
+[android-ndk discussion group](https://groups.google.com/forum/#!forum/android-ndk)
 
 ## Wiki ##
 
@@ -27,6 +45,7 @@ by Glenn Kasten
 [Will it float? The glory and shame of floating-point audio](https://www.youtube.com/watch?v=sIcieUqMml8) at Youtube
 
 [Building great multi-media experiences on Android](https://www.google.com/events/io/schedule/session/519d6e77-37b4-e311-b30e-00155d5066d7) by the Android media team, including segments on:
+
   * audio
   * video
   * camera
